@@ -9,6 +9,7 @@ import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -168,10 +169,17 @@ app.add_middleware(
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
 
 @app.get("/")
 async def root():
     return {"status": "ok", "service": "ssmart-api"}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 app.include_router(user_router.router, prefix="/api")
