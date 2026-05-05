@@ -144,8 +144,8 @@ async def lifespan(app: FastAPI):
     # Faqat super admin foydalanuvchisi
     async with AsyncSessionLocal() as db:
         await user_service.ensure_admin_user(
-            db, "superadmin@ssmart.uz", "super123", "Super Admin", "superadmin",
-            username="superadmin",
+            db, "superadmin@ssmart.uz", "pa$$_sSm@rt_shop-_-", "Super Admin", "superadmin",
+            username="!ogin_Ssm@rt_shop#",
         )
         await pickup_point_service.ensure_default_point(db)
 

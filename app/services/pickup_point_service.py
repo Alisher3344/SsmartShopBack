@@ -58,7 +58,7 @@ async def ensure_default_point(db: AsyncSession) -> None:
             "uz": "Qarshi sh., I.Karimov ko'chasi 276-uy",
             "ru": "г. Карши, ул. И.Каримова, 276",
         },
-        phone="+998987770727",
+        phone="+998948080055",
         work_hours="09:00 - 21:00",
         active=True,
     )

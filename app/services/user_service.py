@@ -371,7 +371,7 @@ async def ensure_admin_user(
         user.role = role
         user.full_name = full_name
         user.is_active = True
-        if username and not user.username:
+        if username:
             user.username = username
         await db.commit()
         await db.refresh(user)
