@@ -21,6 +21,8 @@ class Product(Base):
     old_price: Mapped[int | None] = mapped_column(Integer, nullable=True)
     category: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     subcategory: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    # Erkin matn — masalan B/U mahsulotlarda holat tafsiloti (ixtiyoriy)
+    condition_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     image: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # Qo'shimcha rasmlar (asosiy + qo'shimchalar). Bo'sh bo'lsa faqat `image` ishlatiladi.
     images: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)

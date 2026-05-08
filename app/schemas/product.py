@@ -24,6 +24,7 @@ class ProductCreate(BaseModel):
     old_price: int | None = Field(default=None, ge=0)
     category: str
     subcategory: str | None = None
+    condition_note: str | None = None
     store_id: int | None = None
     image: str = ""
     images: list[str] = []
@@ -44,6 +45,7 @@ class ProductUpdate(BaseModel):
     old_price: int | None = None
     category: str | None = None
     subcategory: str | None = None
+    condition_note: str | None = None
     image: str | None = None
     images: list[str] | None = None
     stock: int | None = Field(default=None, ge=0)
@@ -65,6 +67,7 @@ class ProductOut(BaseModel):
     old_price: int | None
     category: str
     subcategory: str | None
+    condition_note: str | None = None
     image: str
     images: list[str] = []
     stock: int
