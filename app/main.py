@@ -99,6 +99,14 @@ USER_TABLE_MIGRATIONS = [
     "ALTER TABLE products ADD COLUMN IF NOT EXISTS store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL",
+    # Bannerlar: til bo'yicha rasm (UZ + RU)
+    "ALTER TABLE banners ADD COLUMN IF NOT EXISTS image_uz TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE banners ADD COLUMN IF NOT EXISTS image_ru TEXT NOT NULL DEFAULT ''",
+    # Mavjud bannerlarda image qiymatini ikkala tilga ko'chiramiz
+    "UPDATE banners SET image_uz = image WHERE image_uz = '' AND image <> ''",
+    "UPDATE banners SET image_ru = image WHERE image_ru = '' AND image <> ''",
+    # Banner joyi (slot): 'home' (karusel) yoki 'bu' (/b-u sahifa)
+    "ALTER TABLE banners ADD COLUMN IF NOT EXISTS slot VARCHAR(20) NOT NULL DEFAULT 'home'",
 ]
 
 

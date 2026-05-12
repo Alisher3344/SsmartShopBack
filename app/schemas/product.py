@@ -34,6 +34,7 @@ class ProductCreate(BaseModel):
     badges: list[str] = []
     on_sale: bool = False
     is_popular: bool = False
+    specifications: list[dict] = []
 
     model_config = _config()
 
@@ -55,6 +56,7 @@ class ProductUpdate(BaseModel):
     on_sale: bool | None = None
     is_popular: bool | None = None
     store_id: int | None = None
+    specifications: list[dict] | None = None
 
     model_config = _config()
 
@@ -77,6 +79,7 @@ class ProductOut(BaseModel):
     on_sale: bool
     is_popular: bool = False
     store_id: int | None = None
+    specifications: list[dict] = []
     created_at: datetime
     # Sharhlardan dinamik hisoblangan
     reviews_count: int = 0

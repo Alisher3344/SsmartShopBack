@@ -32,6 +32,7 @@ class Product(Base):
     badges: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     on_sale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Super admin qo'lda "Ommabop" ro'yxatiga qo'sha oladi
+    specifications: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     is_popular: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
