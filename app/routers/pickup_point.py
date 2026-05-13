@@ -1,34 +1,36 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.deps import require_pickup_admin, require_superadmin
-from app.core.telegram_bot import notify_user_with_photos
+from app.core.eskiz import EskizError, eskiz
 from app.db.database import get_db
 from app.models.user import User
 from app.schemas.pickup_point import PickupPointCreate, PickupPointOut, PickupPointUpdate
 from app.schemas.user import PickupAdminCreate, PickupAdminUpdate, UserOut
 from app.services import order_service, pickup_point_service, user_service
 
+log = logging.getLogger(__name__)
 
-def _format_ready_message(order, point_name: dict | None) -> str:
-    """Punkt mahsulotni qabul qilgach foydalanuvchiga yuboriladigan xabar."""
-    lines = ["📦 <b>Mahsulotingiz punktga yetib keldi!</b>", ""]
-    for it in order.items:
-        nm = (it.get("name") or {}).get("uz") or (it.get("name") or {}).get("ru") or "—"
-        price = it.get("price", 0)
-        qty = it.get("qty", 1)
-        lines.append(f"• {nm} — {qty} × {price:,} so'm".replace(",", " "))
-    lines.append("")
-    lines.append(f"💰 Jami: <b>{order.total:,} so'm</b>".replace(",", " "))
-    lines.append("")
-    lines.append(f"🔢 Olib ketish kodingiz:\n<code>{order.pickup_code}</code>")
-    if point_name:
-        lines.append("")
-        lines.append(f"📍 Punkt: {point_name.get('uz', '')}")
-    lines.append("")
-    lines.append("Punktga borib, ushbu kodni adminga ko'rsating.")
-    return "\n".join(lines)
+
+def _build_pickup_sms_text(order) -> str:
+    """Punkt qabul qilgan buyurtma uchun SMS matni.
+    Birinchi mahsulot nomi + qisqartirish, +N qo'shimcha."""
+    items = order.items or []
+    if not items:
+        product = "Buyurtma"
+    else:
+        first = items[0]
+        nm = (first.get("name") or {}).get("uz") or (first.get("name") or {}).get("ru") or "Buyurtma"
+        if len(nm) > 35:
+            nm = nm[:32].rstrip() + "..."
+        product = nm if len(items) == 1 else f"{nm} +{len(items) - 1}"
+    code = order.pickup_code or ""
+    tpl = settings.SMS_PICKUP_TEMPLATE.replace("\\n", "\n")
+    return tpl.format(product=product, code=code)
 
 
 class PickupCodeIn(BaseModel):
@@ -111,14 +113,14 @@ async def receive_by_transit_code(
 
     order = await order_service.receive_at_pickup(db, order)
 
-    # Foydalanuvchiga 2-kodni Telegram orqali rasmlar bilan yuboramiz
-    chat_id = await order_service.get_user_telegram_id(db, order.user_id)
-    if chat_id:
-        p_name, _ = await order_service.get_pickup_point_info(db, order.pickup_point_id)
-        image_urls = [it.get("image") for it in (order.items or []) if it.get("image")]
-        await notify_user_with_photos(
-            chat_id, image_urls, _format_ready_message(order, p_name)
-        )
+    # Foydalanuvchiga olib ketish kodini SMS orqali yuboramiz (Eskiz).
+    # Telegram bot ishlatish bekor qilingan — endi SMS oqimi.
+    phone = await order_service.get_user_phone(db, order.user_id)
+    if phone:
+        try:
+            await eskiz.send_sms(phone, _build_pickup_sms_text(order))
+        except EskizError as e:
+            log.warning("Eskiz pickup SMS yuborilmadi (order=%s, phone=%s): %s", order.id, phone, e)
 
     return await _serialize_order(db, order)
 
