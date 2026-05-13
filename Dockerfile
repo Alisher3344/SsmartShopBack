@@ -33,6 +33,8 @@ WORKDIR /app
 COPY --from=builder /install /usr/local
 
 COPY --chown=app:app app ./app
+COPY --chown=app:app alembic ./alembic
+COPY --chown=app:app alembic.ini ./alembic.ini
 COPY --chown=app:app delete_products.py reset_db.py ./
 
 RUN mkdir -p /app/uploads && chown -R app:app /app

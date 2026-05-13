@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,11 +29,13 @@ class Product(Base):
     stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rating: Mapped[float] = mapped_column(Float, nullable=False, default=4.5)
     credit_months: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
-    delivery_days: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    delivery_days: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
     badges: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     on_sale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Super admin qo'lda "Ommabop" ro'yxatiga qo'sha oladi
-    specifications: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    specifications: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     is_popular: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

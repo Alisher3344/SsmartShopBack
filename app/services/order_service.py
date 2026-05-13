@@ -66,6 +66,14 @@ async def create_order(db: AsyncSession, user: User, data: OrderCreate) -> Order
     for it in data.items:
         products[it.product_id].stock -= it.qty
 
+    # Online to'lov (card) — to'lov muvaffaqiyatli bo'lguncha transit_code generatsiya qilmaymiz.
+    # Cash — eski avto-tasdiqlash oqimi saqlanadi.
+    is_online_payment = data.payment_method == "card"
+    initial_status = "pending_payment" if is_online_payment else "confirmed"
+    transit_code = (
+        None if is_online_payment else await _generate_unique_code(db, Order.transit_code)
+    )
+
     order = Order(
         user_id=user.id,
         pickup_point_id=data.pickup_point_id if data.delivery_type == "pickup" else None,
@@ -78,13 +86,43 @@ async def create_order(db: AsyncSession, user: User, data: OrderCreate) -> Order
         comment=data.comment,
         customer_name=user.full_name or user.telegram_username,
         customer_phone=user.phone,
-        # Avto-tasdiqlash: yaratilishi bilan confirmed va transit_code beriladi
-        status="confirmed",
-        transit_code=await _generate_unique_code(db, Order.transit_code),
+        status=initial_status,
+        payment_status="pending",
+        transit_code=transit_code,
     )
     db.add(order)
     await db.commit()
     await db.refresh(order)
+    return order
+
+
+async def finalize_after_payment(db: AsyncSession, order: Order) -> Order:
+    """To'lov muvaffaqiyatli yakunlangach buyurtmani 'confirmed' ga o'tkazib,
+    transit_code generatsiya qilamiz (idempotent)."""
+    changed = False
+    if order.status == "pending_payment":
+        order.status = "confirmed"
+        changed = True
+    if order.payment_status != "paid":
+        order.payment_status = "paid"
+        changed = True
+    if not order.transit_code:
+        order.transit_code = await generate_transit_code(db)
+        changed = True
+    if changed:
+        order.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(order)
+    return order
+
+
+async def mark_payment_failed(db: AsyncSession, order: Order) -> Order:
+    """To'lov muvaffaqiyatsiz — order pending_payment'da qoladi, payment_status=failed."""
+    if order.payment_status != "failed":
+        order.payment_status = "failed"
+        order.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(order)
     return order
 
 
@@ -232,6 +270,11 @@ async def mark_delivered(db: AsyncSession, order: Order) -> Order:
 
 async def get_user_telegram_id(db: AsyncSession, user_id: int) -> int | None:
     res = await db.execute(select(User.telegram_id).where(User.id == user_id))
+    return res.scalar_one_or_none()
+
+
+async def get_user_phone(db: AsyncSession, user_id: int) -> str | None:
+    res = await db.execute(select(User.phone).where(User.id == user_id))
     return res.scalar_one_or_none()
 
 

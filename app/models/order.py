@@ -32,8 +32,12 @@ class Order(Base):
     customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     customer_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="pending", index=True
-    )  # pending | confirmed | ready | delivered | cancelled
+        String(32), nullable=False, default="pending", index=True
+    )  # pending | pending_payment | confirmed | ready | delivered | cancelled
+    # pending | paid | failed | refunded | partially_refunded
+    payment_status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="pending", server_default="pending"
+    )
     # 1-kod: sotuv admin tasdiqlasa beriladi, mahsulot bilan punktga jo'natiladi
     transit_code: Mapped[str | None] = mapped_column(
         String(16), unique=True, index=True, nullable=True
