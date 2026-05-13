@@ -1,13 +1,35 @@
 import hashlib
 import hmac
+import logging
 import time
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password, verify_password
 from app.models.user import User
-from app.schemas.user import TelegramAuthIn, UserCreate
+from app.schemas.user import ProfileUpdate, TelegramAuthIn, UserCreate
+
+log = logging.getLogger(__name__)
+
+UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+
+
+def _delete_uploaded_file(url: str | None) -> None:
+    """Eski rasm faylini /uploads dan o'chiradi (mavjud bo'lsa)."""
+    if not url or not url.startswith("/uploads/"):
+        return
+    fname = url.rsplit("/", 1)[-1]
+    # Xavfsizlik: traversal'ga ruxsat bermaslik
+    if not fname or "/" in fname or fname.startswith("."):
+        return
+    fpath = UPLOAD_DIR / fname
+    try:
+        if fpath.is_file():
+            fpath.unlink()
+    except OSError as e:
+        log.warning("Eski rasm o'chirilmadi: %s — %s", fpath, e)
 
 TELEGRAM_AUTH_MAX_AGE = 86400  # 1 kun
 
@@ -294,6 +316,40 @@ def verify_telegram_auth(data: TelegramAuthIn, bot_token: str) -> bool:
 async def get_user_by_phone(db: AsyncSession, phone: str) -> User | None:
     result = await db.execute(select(User).where(User.phone == phone))
     return result.scalar_one_or_none()
+
+
+async def update_profile(db: AsyncSession, user: User, data: ProfileUpdate) -> User:
+    """Profil yangilash: ism + familiya → full_name, tug'ilgan kun, rasm.
+    Yangi rasm yuborilsa, eski rasm fayli o'chiriladi."""
+    sent = data.model_fields_set
+
+    # Ism + familiya birlashtirish (har birini alohida yuborish mumkin)
+    first = (data.first_name or '').strip() if 'first_name' in sent else None
+    last = (data.last_name or '').strip() if 'last_name' in sent else None
+
+    if 'first_name' in sent or 'last_name' in sent:
+        current_full = (user.full_name or '').strip()
+        parts = current_full.split(' ', 1) if current_full else ['', '']
+        cur_first = parts[0] if len(parts) > 0 else ''
+        cur_last = parts[1] if len(parts) > 1 else ''
+        new_first = first if first is not None else cur_first
+        new_last = last if last is not None else cur_last
+        combined = f"{new_first} {new_last}".strip()
+        user.full_name = combined or None
+
+    if 'birth_date' in sent:
+        user.birth_date = data.birth_date
+
+    if 'photo_url' in sent:
+        new_url = data.photo_url
+        old_url = user.photo_url
+        if new_url != old_url:
+            _delete_uploaded_file(old_url)
+        user.photo_url = new_url
+
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 async def get_or_create_phone_user(

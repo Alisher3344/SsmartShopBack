@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -57,11 +57,20 @@ class UserOut(BaseModel):
     telegram_username: str | None = None
     photo_url: str | None = None
     phone: str | None = None
+    birth_date: date | None = None
     pickup_point_id: int | None = None
     store_id: int | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProfileUpdate(BaseModel):
+    """Foydalanuvchi o'z profili (ism, familiya, tug'ilgan kun, rasm)."""
+    first_name: str | None = Field(default=None, min_length=1, max_length=120)
+    last_name: str | None = Field(default=None, min_length=1, max_length=120)
+    birth_date: date | None = None
+    photo_url: str | None = Field(default=None, max_length=512)
 
 
 class SalesAdminCreate(BaseModel):

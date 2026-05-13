@@ -9,6 +9,7 @@ from app.core.telegram_bot import get_bot_link
 from app.db.database import get_db
 from app.models.user import User
 from app.schemas.user import (
+    ProfileUpdate,
     TelegramAuthIn,
     TelegramInfo,
     TelegramOtpStartOut,
@@ -85,6 +86,17 @@ async def login(data: UserLogin, request: Request, db: AsyncSession = Depends(ge
 @router.get("/me", response_model=UserOut)
 async def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.patch("/me/profile", response_model=UserOut)
+async def update_my_profile(
+    data: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Foydalanuvchi o'z profilini yangilaydi: ism, familiya, tug'ilgan kun, rasm.
+    Yangi rasm yuborilsa, eski rasm fayli /uploads dan o'chiriladi."""
+    return await user_service.update_profile(db, current_user, data)
 
 
 @router.get("/telegram-info", response_model=TelegramInfo)
