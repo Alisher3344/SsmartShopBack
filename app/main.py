@@ -6,17 +6,22 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import asyncpg
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import text
+from sqlalchemy.engine import Connection
 
 from app.core.config import settings
 from app.core.telegram_bot import start_bot, stop_bot
-from app.db.database import AsyncSessionLocal, Base, engine
+from app.db.database import AsyncSessionLocal, engine
 from app.routers import banner as banner_router
+from app.routers import bound_card as bound_card_router
 from app.routers import order as order_router
+from app.routers import payment as payment_router
 from app.routers import pickup_point as pickup_point_router
 from app.routers import product as product_router
 from app.routers import review as review_router
@@ -24,21 +29,17 @@ from app.routers import sales_admin as sales_admin_router
 from app.routers import staff_admin as staff_admin_router
 from app.routers import store as store_router
 from app.routers import upload as upload_router
+from app.routers import sms_otp as sms_otp_router
+from app.routers import admin_users as admin_users_router
+from app.routers import mobile as mobile_router
 from app.routers import user as user_router
 from app.services import pickup_point_service, user_service
 
-# Modellar - Base.metadata to'liq bo'lishi uchun import qilamiz
-from app.models import auth_session as _auth_session_model  # noqa: F401
-from app.models import banner as _banner_model  # noqa: F401
-from app.models import order as _order_model  # noqa: F401
-from app.models import pickup_point as _pickup_point_model  # noqa: F401
-from app.models import product as _product_model  # noqa: F401
-from app.models import review as _review_model  # noqa: F401
-from app.models import store as _store_model  # noqa: F401
-from app.models import user as _user_model  # noqa: F401
-
 UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# alembic.ini backend root'da (Dockerfile uni /app ga ko'chiradi)
+ALEMBIC_INI = Path(__file__).resolve().parent.parent / "alembic.ini"
 
 
 async def ensure_database_exists():
@@ -61,55 +62,34 @@ async def ensure_database_exists():
         await conn.close()
 
 
-# users jadvalining yangi (Telegram) ustunlari uchun yengil migratsiya
-USER_TABLE_MIGRATIONS = [
-    "ALTER TABLE users ALTER COLUMN email DROP NOT NULL",
-    "ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_id BIGINT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_username VARCHAR(64)",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url TEXT",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(32)",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS pickup_point_id INTEGER REFERENCES pickup_points(id) ON DELETE SET NULL",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(64)",
-    # Eski userlarga email prefiksidan username generatsiya qilamiz (NULL bo'lsa)
-    "UPDATE users SET username = SPLIT_PART(email, '@', 1) WHERE username IS NULL AND email IS NOT NULL",
-    # Duplikat username'larga _id qo'shamiz (unique index buzilmasligi uchun)
+def _alembic_config(connection: Connection) -> AlembicConfig:
+    cfg = AlembicConfig(str(ALEMBIC_INI))
+    cfg.attributes["connection"] = connection
+    return cfg
+
+
+def _run_alembic(connection: Connection) -> None:
+    """Alembic upgrade head — yangi/normal DB uchun.
+
+    Mavjud (alembic'sgacha bo'lgan) DB'da `alembic_version` jadvali yo'q,
+    lekin biznes jadvallar bor. Bunda 0001 migration'ni qayta yugurtirib
+    bo'lmaydi — `stamp head` qilamiz, keyin upgrade (no-op).
     """
-    UPDATE users u SET username = u.username || '_' || u.id
-    FROM (
-        SELECT id, username,
-               ROW_NUMBER() OVER (PARTITION BY username ORDER BY id) AS rn
-        FROM users WHERE username IS NOT NULL
-    ) d
-    WHERE u.id = d.id AND d.rn > 1
-    """,
-    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)",
-    # Orders jadvalining yangi ustunlari
-    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS pickup_code VARCHAR(16)",
-    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS transit_code VARCHAR(16)",
-    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS received_at TIMESTAMP WITH TIME ZONE",
-    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP WITH TIME ZONE",
-    "CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_pickup_code ON orders (pickup_code)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_transit_code ON orders (transit_code)",
-    # Products jadvali: ko'p rasm
-    "ALTER TABLE products ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb",
-    "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_popular BOOLEAN NOT NULL DEFAULT FALSE",
-    # Magazinlar (Store)
-    "ALTER TABLE products ADD COLUMN IF NOT EXISTS store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL",
-    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL",
-    # Bannerlar: til bo'yicha rasm (UZ + RU)
-    "ALTER TABLE banners ADD COLUMN IF NOT EXISTS image_uz TEXT NOT NULL DEFAULT ''",
-    "ALTER TABLE banners ADD COLUMN IF NOT EXISTS image_ru TEXT NOT NULL DEFAULT ''",
-    # Mavjud bannerlarda image qiymatini ikkala tilga ko'chiramiz
-    "UPDATE banners SET image_uz = image WHERE image_uz = '' AND image <> ''",
-    "UPDATE banners SET image_ru = image WHERE image_ru = '' AND image <> ''",
-    # Banner joyi (slot): 'home' (karusel) yoki 'bu' (/b-u sahifa)
-    "ALTER TABLE banners ADD COLUMN IF NOT EXISTS slot VARCHAR(20) NOT NULL DEFAULT 'home'",
-    # Products: yetkazib berish kuni (admin tanlaydi: 1/3/5/7 ...)
-    "ALTER TABLE products ADD COLUMN IF NOT EXISTS delivery_days INTEGER NOT NULL DEFAULT 3",
-]
+    has_alembic_table = connection.execute(
+        text("SELECT to_regclass('public.alembic_version')")
+    ).scalar()
+    has_users_table = connection.execute(
+        text("SELECT to_regclass('public.users')")
+    ).scalar()
+
+    cfg = _alembic_config(connection)
+
+    if has_alembic_table is None and has_users_table is not None:
+        print("[alembic] Mavjud DB topildi (alembic_version yo'q) — stamp head qilinmoqda")
+        command.stamp(cfg, "head")
+    else:
+        command.upgrade(cfg, "head")
+    print("[alembic] upgrade head bajarildi")
 
 
 def fetch_telegram_bot_username(token: str) -> str | None:
@@ -130,17 +110,10 @@ def fetch_telegram_bot_username(token: str) -> str | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_database_exists()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
-    # Har bir migratsiya alohida tranzaksiyada — bittasi yiqilsa,
-    # qolganlari ishlayveradi (eski DB bilan moslik uchun)
-    for stmt in USER_TABLE_MIGRATIONS:
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text(stmt))
-        except Exception as e:
-            print(f"[migration] '{stmt[:60].strip()}...' o'tkazildi: {e}")
+    # Schema migratsiyalari endi to'liq Alembic orqali
+    async with engine.begin() as conn:
+        await conn.run_sync(_run_alembic)
 
     # Telegram bot username avto-aniqlash
     if settings.TELEGRAM_BOT_TOKEN and not settings.TELEGRAM_BOT_USERNAME:
@@ -193,11 +166,16 @@ async def health():
 
 
 app.include_router(user_router.router, prefix="/api")
+app.include_router(sms_otp_router.router, prefix="/api")
+app.include_router(admin_users_router.router, prefix="/api")
+app.include_router(mobile_router.router, prefix="/api")
 app.include_router(product_router.router, prefix="/api")
 app.include_router(banner_router.router, prefix="/api")
 app.include_router(pickup_point_router.router, prefix="/api")
 app.include_router(sales_admin_router.router, prefix="/api")
 app.include_router(order_router.router, prefix="/api")
+app.include_router(payment_router.router, prefix="/api")
+app.include_router(bound_card_router.router, prefix="/api")
 app.include_router(review_router.router, prefix="/api")
 app.include_router(store_router.router, prefix="/api")
 app.include_router(staff_admin_router.router, prefix="/api")
