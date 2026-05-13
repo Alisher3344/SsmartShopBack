@@ -30,6 +30,7 @@ class StoreOut(BaseModel):
     phone: str | None
     description: str | None
     active: bool
+    is_main: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

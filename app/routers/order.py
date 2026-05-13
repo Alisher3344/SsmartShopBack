@@ -6,7 +6,7 @@ from app.db.database import get_db
 from app.models.user import User
 from app.routers.user import get_current_user
 from app.schemas.order import OrderCreate, OrderOut
-from app.services import order_service
+from app.services import order_service, store_service
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -18,10 +18,9 @@ async def _serialize(db: AsyncSession, order, viewer: User | None = None) -> dic
     out["pickupPointAddress"] = p_addr
 
     # transit_code rolga qarab maskalash:
-    #   - Mahsulot magazin adminiga tegishli (order.store_id != None) →
-    #     faqat shu magazin staff'i va super admin ko'radi
-    #   - Mahsulot sotuv admin qo'shgan (order.store_id == None) →
-    #     sotuv admin (admin) va super admin ko'radi
+    #   - superadmin barcha order'ning kodini ko'radi
+    #   - staff faqat o'z magazinining order kodini ko'radi
+    #   - sotuv admin (admin) faqat asosiy magazin order kodini ko'radi
     if viewer is not None and order.transit_code:
         if viewer.role == "superadmin":
             pass  # ko'radi
@@ -29,8 +28,8 @@ async def _serialize(db: AsyncSession, order, viewer: User | None = None) -> dic
             if order.store_id != viewer.store_id:
                 out["transitCode"] = None
         elif viewer.role == "admin":
-            if order.store_id is not None:
-                # Mahsulot magazin adminiga tegishli — sotuv adminga ko'rinmaydi
+            main_id = await store_service.get_main_store_id(db)
+            if order.store_id != main_id:
                 out["transitCode"] = None
         else:
             out["transitCode"] = None
@@ -69,7 +68,7 @@ async def list_orders(
     """Buyurtmalar ro'yxati:
        - superadmin: barchasini
        - staff (magazin admin): faqat o'z magazinining buyurtmalari
-       - admin (sotuv admin): faqat magazinga bog'lanmagan buyurtmalar (store_id NULL)
+       - admin (sotuv admin): asosiy magazin (is_main) buyurtmalari
     """
     store_filter = None
     only_no_store = False
@@ -78,7 +77,10 @@ async def list_orders(
             return []
         store_filter = user.store_id
     elif user.role == "admin":
-        only_no_store = True
+        main_id = await store_service.get_main_store_id(db)
+        if main_id is None:
+            return []
+        store_filter = main_id
     orders = await order_service.list_orders_for_admin(
         db,
         pickup_point_id=pickup_point_id,

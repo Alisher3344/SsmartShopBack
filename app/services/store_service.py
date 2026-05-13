@@ -18,6 +18,17 @@ async def get_store(db: AsyncSession, store_id: int) -> Store | None:
     return res.scalar_one_or_none()
 
 
+async def get_main_store(db: AsyncSession) -> Store | None:
+    """Asosiy magazin (is_main=true). Yo'q bo'lsa None."""
+    res = await db.execute(select(Store).where(Store.is_main.is_(True)).limit(1))
+    return res.scalar_one_or_none()
+
+
+async def get_main_store_id(db: AsyncSession) -> int | None:
+    store = await get_main_store(db)
+    return store.id if store else None
+
+
 async def create_store(db: AsyncSession, data: StoreCreate) -> Store:
     store = Store(**data.model_dump())
     db.add(store)

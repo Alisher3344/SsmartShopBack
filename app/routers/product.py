@@ -5,24 +5,25 @@ from app.core.deps import require_admin
 from app.db.database import get_db
 from app.models.user import User
 from app.schemas.product import ProductCreate, ProductOut, ProductUpdate
-from app.services import product_service
+from app.services import product_service, store_service
 
 router = APIRouter(prefix="/products", tags=["products"])
 
 
-def _ensure_store_access(user: User, store_id: int | None):
+async def _ensure_store_access(db: AsyncSession, user: User, store_id: int | None):
     """Mahsulotga ruxsat tekshiruvi:
        - superadmin: barchasiga
-       - admin (sotuv admin): faqat magazinga bog'lanmagan (store_id NULL) mahsulotlarga
+       - admin (sotuv admin): faqat asosiy magazin (is_main) mahsulotlariga
        - staff (magazin admin): faqat o'z magazinining mahsulotlariga
     """
     if user.role == "superadmin":
         return
     if user.role == "admin":
-        if store_id is not None:
+        main_id = await store_service.get_main_store_id(db)
+        if store_id != main_id:
             raise HTTPException(
                 status_code=403,
-                detail="Bu mahsulot magazin adminiga tegishli",
+                detail="Bu mahsulot boshqa magazinga tegishli",
             )
         return
     # staff
@@ -49,10 +50,15 @@ async def my_products(
     user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin/sotuv admin uchun: faqat o'z magazinining mahsulotlari.
-    Super admin bo'lsa — barchasi."""
+    """Admin/sotuv admin: asosiy magazin mahsulotlari. Staff: o'z magazini. Super admin: barchasi."""
     if user.role == "superadmin":
         return await product_service.list_products(db)
+    if user.role == "admin":
+        main_id = await store_service.get_main_store_id(db)
+        if main_id is None:
+            return []
+        return await product_service.list_products(db, store_id=main_id)
+    # staff
     if user.store_id is None:
         return []
     return await product_service.list_products(db, store_id=user.store_id)
@@ -77,7 +83,9 @@ async def create_product(
     user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    # Staff: store_id avto-belgilanadi. Admin/superadmin — formada tanlaydi.
+    # Staff: store_id avto-belgilanadi (o'z magazini).
+    # Admin (sotuv admin): har doim asosiy magazin.
+    # Super admin: formada tanlash, tanlanmasa asosiy magazin.
     if user.role == "staff":
         if user.store_id is None:
             raise HTTPException(
@@ -85,6 +93,14 @@ async def create_product(
                 detail="Sizga magazin biriktirilmagan, super admin bilan bog'laning",
             )
         data.store_id = user.store_id
+    elif user.role == "admin":
+        main_id = await store_service.get_main_store_id(db)
+        if main_id is None:
+            raise HTTPException(status_code=500, detail="Asosiy magazin sozlanmagan")
+        data.store_id = main_id
+    else:  # superadmin
+        if data.store_id is None:
+            data.store_id = await store_service.get_main_store_id(db)
     return await product_service.create_product(db, data)
 
 
@@ -102,12 +118,9 @@ async def update_product(
     product = await product_service.get_product(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    _ensure_store_access(user, product.store_id)
-    # Staff store_id ni o'zgartira olmaydi — service None'ni skip qiladi
-    if user.role == "staff":
-        data.store_id = None
-    # Sotuv admin (admin) ham store_id'ni o'zgartira olmaydi (faqat default mahsulotlarga ruxsat)
-    elif user.role == "admin":
+    await _ensure_store_access(db, user, product.store_id)
+    # Staff va sotuv admin store_id'ni o'zgartira olmaydi — service None'ni skip qiladi
+    if user.role in ("staff", "admin"):
         data.store_id = None
     return await product_service.update_product(db, product, data)
 
@@ -124,7 +137,7 @@ async def delete_product(
     product = await product_service.get_product(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    _ensure_store_access(user, product.store_id)
+    await _ensure_store_access(db, user, product.store_id)
     await product_service.delete_product(db, product)
 
 
@@ -141,5 +154,5 @@ async def toggle_sale(
     product = await product_service.get_product(db, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    _ensure_store_access(user, product.store_id)
+    await _ensure_store_access(db, user, product.store_id)
     return await product_service.toggle_sale(db, product)

@@ -33,4 +33,6 @@ async def delete_store(store_id: int, db: AsyncSession = Depends(get_db)):
     store = await store_service.get_store(db, store_id)
     if not store:
         raise HTTPException(status_code=404, detail="Magazin topilmadi")
+    if store.is_main:
+        raise HTTPException(status_code=400, detail="Asosiy magazinni o'chirib bo'lmaydi")
     await store_service.delete_store(db, store)
