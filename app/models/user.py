@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -8,6 +8,15 @@ from app.db.database import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        # phone null bo'lmagan qatorlar uchun unique (migration 0004 qo'shgan)
+        Index(
+            "ux_users_phone_not_null",
+            "phone",
+            unique=True,
+            postgresql_where=text("phone IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     # Telegram orqali ro'yxatdan o'tganlar uchun email/password bo'lmasligi mumkin
@@ -22,6 +31,7 @@ class User(Base):
     telegram_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     photo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    birth_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     # pickup_admin uchun - qaysi punktga biriktirilgan
     pickup_point_id: Mapped[int | None] = mapped_column(
         ForeignKey("pickup_points.id", ondelete="SET NULL"), nullable=True
