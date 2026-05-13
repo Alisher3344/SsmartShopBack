@@ -31,6 +31,7 @@ class ProductCreate(BaseModel):
     stock: int = Field(default=0, ge=0)
     rating: float = Field(default=4.5, ge=0, le=5)
     credit_months: int = Field(default=12, ge=0, le=60)
+    delivery_days: int = Field(default=3, ge=0, le=60)
     badges: list[str] = []
     on_sale: bool = False
     is_popular: bool = False
@@ -52,6 +53,7 @@ class ProductUpdate(BaseModel):
     stock: int | None = Field(default=None, ge=0)
     rating: float | None = None
     credit_months: int | None = None
+    delivery_days: int | None = Field(default=None, ge=0, le=60)
     badges: list[str] | None = None
     on_sale: bool | None = None
     is_popular: bool | None = None
@@ -75,6 +77,7 @@ class ProductOut(BaseModel):
     stock: int
     rating: float
     credit_months: int
+    delivery_days: int = 3
     badges: list[str]
     on_sale: bool
     is_popular: bool = False

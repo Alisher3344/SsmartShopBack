@@ -107,6 +107,8 @@ USER_TABLE_MIGRATIONS = [
     "UPDATE banners SET image_ru = image WHERE image_ru = '' AND image <> ''",
     # Banner joyi (slot): 'home' (karusel) yoki 'bu' (/b-u sahifa)
     "ALTER TABLE banners ADD COLUMN IF NOT EXISTS slot VARCHAR(20) NOT NULL DEFAULT 'home'",
+    # Products: yetkazib berish kuni (admin tanlaydi: 1/3/5/7 ...)
+    "ALTER TABLE products ADD COLUMN IF NOT EXISTS delivery_days INTEGER NOT NULL DEFAULT 3",
 ]
 
 

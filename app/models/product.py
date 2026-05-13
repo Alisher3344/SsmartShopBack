@@ -29,6 +29,7 @@ class Product(Base):
     stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     rating: Mapped[float] = mapped_column(Float, nullable=False, default=4.5)
     credit_months: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
+    delivery_days: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     badges: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     on_sale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Super admin qo'lda "Ommabop" ro'yxatiga qo'sha oladi
