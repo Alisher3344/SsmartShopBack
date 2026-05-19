@@ -26,6 +26,7 @@ from app.routers import pickup_point as pickup_point_router
 from app.routers import product as product_router
 from app.routers import review as review_router
 from app.routers import sales_admin as sales_admin_router
+from app.routers import scoring as scoring_router
 from app.routers import staff_admin as staff_admin_router
 from app.routers import store as store_router
 from app.routers import upload as upload_router
@@ -176,6 +177,7 @@ app.include_router(sales_admin_router.router, prefix="/api")
 app.include_router(order_router.router, prefix="/api")
 app.include_router(payment_router.router, prefix="/api")
 app.include_router(bound_card_router.router, prefix="/api")
+app.include_router(scoring_router.router, prefix="/api")
 app.include_router(review_router.router, prefix="/api")
 app.include_router(store_router.router, prefix="/api")
 app.include_router(staff_admin_router.router, prefix="/api")

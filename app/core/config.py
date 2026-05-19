@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     ATMOS_TERMINAL_ID: str = ""
     ATMOS_CALLBACK_SECRET: str = ""  # HMAC-SHA256 kalit (X-SIGNATURE tekshiruvi)
     ATMOS_DEFAULT_LANG: str = "uz"
+    # Paymo scoring API (karta bo'yicha 12 oylik tushum tarixi)
+    PAYMO_BASE_URL: str = "https://api.paymo.uz"
+    PAYMO_AUTH_TOKEN: str = ""  # statik Bearer token
+    PAYMO_TIMEOUT: int = 20
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
