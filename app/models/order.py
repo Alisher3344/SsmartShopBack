@@ -27,6 +27,7 @@ class Order(Base):
     # items: [{product_id, name (dict), qty, price, image}]
     items: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Buyurtma berilgan paytda foydalanuvchi ma'lumotlari (snapshot)
     customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

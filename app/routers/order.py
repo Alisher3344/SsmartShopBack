@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import require_admin
 from app.db.database import get_db
 from app.models.user import User
 from app.routers.user import get_current_user
-from app.schemas.order import OrderCreate, OrderOut
+from app.schemas.order import CancelOrderIn, OrderCreate, OrderOut
 from app.services import order_service, store_service
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -112,6 +112,7 @@ async def confirm_order(
 @router.post("/{order_id}/cancel")
 async def cancel_order(
     order_id: int,
+    payload: CancelOrderIn | None = Body(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -131,5 +132,9 @@ async def cancel_order(
         return await _serialize(db, order, viewer=current_user)
     # Faqat avval cancel qilinmagan bo'lsa stock qaytariladi
     await order_service.restore_stock(db, order)
+    reason = (payload.reason if payload else None) or None
+    if reason is not None:
+        reason = reason.strip()[:500] or None
+    order.cancel_reason = reason
     order = await order_service.update_status(db, order, "cancelled")
     return await _serialize(db, order, viewer=current_user)

@@ -51,6 +51,7 @@ class OrderOut(BaseModel):
     items: list[OrderItemOut]
     total: int
     comment: str | None
+    cancel_reason: str | None = None
     customer_name: str | None
     customer_phone: str | None
     status: str
@@ -63,5 +64,11 @@ class OrderOut(BaseModel):
     # Pickup point ma'lumotlari (admin uchun)
     pickup_point_name: dict | None = None
     pickup_point_address: dict | None = None
+
+    model_config = _config()
+
+
+class CancelOrderIn(BaseModel):
+    reason: str | None = None
 
     model_config = _config()
