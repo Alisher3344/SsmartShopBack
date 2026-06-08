@@ -262,6 +262,34 @@ mobile_app.include_router(mobile_myid_router.router)
 mobile_app.include_router(mobile_katm_router.router)
 app.mount("/api/mobile", mobile_app)
 
+# Ssmart TV uchun alohida sub-application — alohida Swagger (/api/tv/docs)
+# va alohida OpenAPI (/api/tv/openapi.json). Hozircha bo'sh skeleton:
+# TV endpointlari (tv_carousel, tv_admins, ...) keyin shu yerga ko'chiriladi.
+tv_app = FastAPI(
+    title="SSMART TV API",
+    description="Ssmart TV uchun alohida API: karusel, TV adminlar, ...",
+    version="0.3.0",
+    openapi_tags=[
+        {"name": "tv", "description": "Ssmart TV endpointlari"},
+    ],
+    servers=[{"url": "/api/tv", "description": "Mount prefix"}],
+)
+app.mount("/api/tv", tv_app)
+
+# Ssmart Ustalar (Pro) uchun alohida sub-application — alohida Swagger
+# (/api/pro/docs) va alohida OpenAPI (/api/pro/openapi.json). Hozircha bo'sh
+# skeleton: Ustalar endpointlari (pro_carousel, ...) keyin shu yerga ko'chiriladi.
+pro_app = FastAPI(
+    title="SSMART Ustalar API",
+    description="Ssmart Ustalar (Pro) uchun alohida API: karusel, ...",
+    version="0.3.0",
+    openapi_tags=[
+        {"name": "pro", "description": "Ssmart Ustalar (Pro) endpointlari"},
+    ],
+    servers=[{"url": "/api/pro", "description": "Mount prefix"}],
+)
+app.mount("/api/pro", pro_app)
+
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
