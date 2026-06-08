@@ -16,7 +16,7 @@ from app.core.deps import require_superadmin
 log = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/tv-carousel",
+    prefix="/carousel",
     tags=["tv-carousel"],
     dependencies=[Depends(require_superadmin)],
 )

@@ -263,31 +263,39 @@ mobile_app.include_router(mobile_katm_router.router)
 app.mount("/api/mobile", mobile_app)
 
 # Ssmart TV uchun alohida sub-application — alohida Swagger (/api/tv/docs)
-# va alohida OpenAPI (/api/tv/openapi.json). Hozircha bo'sh skeleton:
-# TV endpointlari (tv_carousel, tv_admins, ...) keyin shu yerga ko'chiriladi.
+# va alohida OpenAPI (/api/tv/openapi.json). Endpointlar (super-admin dashboard
+# boshqaradigan, TV backendiga proxy) shu sub-app ichida:
+#   /api/tv/carousel  (tv_carousel)   /api/tv/admins  (tv_admins)
 tv_app = FastAPI(
     title="SSMART TV API",
-    description="Ssmart TV uchun alohida API: karusel, TV adminlar, ...",
+    description="Ssmart TV uchun alohida API (super-admin dashboard; TV "
+    "backendiga proxy): bosh sahifa karuseli, TV adminlar.",
     version="0.3.0",
     openapi_tags=[
-        {"name": "tv", "description": "Ssmart TV endpointlari"},
+        {"name": "tv-carousel", "description": "TV bosh sahifa karuseli"},
+        {"name": "tv-admins", "description": "TV admin akkauntlari"},
     ],
     servers=[{"url": "/api/tv", "description": "Mount prefix"}],
 )
+tv_app.include_router(tv_carousel_router.router)
+tv_app.include_router(tv_admins_router.router)
 app.mount("/api/tv", tv_app)
 
 # Ssmart Ustalar (Pro) uchun alohida sub-application — alohida Swagger
-# (/api/pro/docs) va alohida OpenAPI (/api/pro/openapi.json). Hozircha bo'sh
-# skeleton: Ustalar endpointlari (pro_carousel, ...) keyin shu yerga ko'chiriladi.
+# (/api/pro/docs) va alohida OpenAPI (/api/pro/openapi.json). Endpointlar
+# (super-admin dashboard boshqaradigan, Pro backendiga proxy):
+#   /api/pro/carousel  (pro_carousel)
 pro_app = FastAPI(
     title="SSMART Ustalar API",
-    description="Ssmart Ustalar (Pro) uchun alohida API: karusel, ...",
+    description="Ssmart Ustalar (Pro) uchun alohida API (super-admin dashboard; "
+    "Pro backendiga proxy): bosh sahifa reklama karuseli.",
     version="0.3.0",
     openapi_tags=[
-        {"name": "pro", "description": "Ssmart Ustalar (Pro) endpointlari"},
+        {"name": "pro-carousel", "description": "Ustalar (Pro) reklama karuseli"},
     ],
     servers=[{"url": "/api/pro", "description": "Mount prefix"}],
 )
+pro_app.include_router(pro_carousel_router.router)
 app.mount("/api/pro", pro_app)
 
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
@@ -330,9 +338,8 @@ app.include_router(katm_router.router, prefix="/api")
 app.include_router(admin_users_router.router, prefix="/api")
 app.include_router(sales_admin_router.router, prefix="/api")
 app.include_router(staff_admin_router.router, prefix="/api")
-app.include_router(tv_admins_router.router, prefix="/api")
-app.include_router(tv_carousel_router.router, prefix="/api")
-app.include_router(pro_carousel_router.router, prefix="/api")
+# TV (tv_admins, tv_carousel) va Ustalar/Pro (pro_carousel) endpointlari
+# alohida sub-app'larga ko'chirilgan: /api/tv/* va /api/pro/* (yuqoriga qarang).
 
 # --- Utility ---
 app.include_router(upload_router.router, prefix="/api")

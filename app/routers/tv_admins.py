@@ -17,7 +17,7 @@ from app.schemas.user import TvAdminCreate, TvAdminUpdate
 log = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/tv-admins",
+    prefix="/admins",
     tags=["tv-admins"],
     dependencies=[Depends(require_superadmin)],
 )
