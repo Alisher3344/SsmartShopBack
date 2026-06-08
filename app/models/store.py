@@ -18,6 +18,10 @@ class Store(Base):
     # Asosiy magazin (default). Faqat bitta bo'lishi mumkin (partial unique index).
     # Bu magazin o'chirilmaydi; mahsulot/buyurtmaning fallback joyi.
     is_main: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Paymo'da ro'yxatdan o'tgan store identifikatori (instalment yaratish uchun).
+    # Har bir SsmartShop magazin Paymo'da o'z ID'iga ega bo'lishi mumkin; NULL bo'lsa
+    # bu magazin orqali instalment yaratib bo'lmaydi.
+    paymo_store_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

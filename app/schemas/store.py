@@ -9,6 +9,9 @@ class StoreBase(BaseModel):
     phone: str | None = None
     description: str | None = None
     active: bool = True
+    # Paymo'da ro'yxatdan o'tgan store ID (rassrochka yaratish uchun).
+    # NULL bo'lsa bu magazin orqali instalment yaratib bo'lmaydi.
+    paymo_store_id: int | None = None
 
 
 class StoreCreate(StoreBase):
@@ -21,6 +24,7 @@ class StoreUpdate(BaseModel):
     phone: str | None = None
     description: str | None = None
     active: bool | None = None
+    paymo_store_id: int | None = None
 
 
 class StoreOut(BaseModel):
@@ -31,6 +35,7 @@ class StoreOut(BaseModel):
     description: str | None
     active: bool
     is_main: bool = False
+    paymo_store_id: int | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

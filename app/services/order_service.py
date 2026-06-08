@@ -1,4 +1,5 @@
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
@@ -9,8 +10,46 @@ from app.models.pickup_point import PickupPoint
 from app.models.product import Product
 from app.models.user import User
 from app.schemas.order import OrderCreate
+from app.services import store_service
 
 CANCELLED_TTL_HOURS = 24
+
+
+@dataclass(frozen=True)
+class OrderScope:
+    """Buyurtmalar uchun data-scope.
+
+    `store_id` None bo'lsa — barcha buyurtmalarni ko'radi (superadmin).
+    Aks holda faqat shu magazin buyurtmalari ko'rinadi.
+    """
+    store_id: int | None
+    role: str
+
+    def can_see_transit(self, order_store_id: int | None) -> bool:
+        if self.store_id is None:
+            return True
+        return order_store_id == self.store_id
+
+    def can_manage(self, order_store_id: int | None) -> bool:
+        if self.role == "superadmin":
+            return True
+        if self.role == "staff":
+            return order_store_id == self.store_id
+        if self.role == "admin":
+            return order_store_id == self.store_id
+        return False
+
+
+async def resolve_order_scope(db: AsyncSession, user: User) -> OrderScope:
+    """Foydalanuvchining buyurtmalarga ruxsat scope'i. Faqat admin rollarda chaqiriladi."""
+    if user.role == "superadmin":
+        return OrderScope(store_id=None, role="superadmin")
+    if user.role == "staff":
+        return OrderScope(store_id=user.store_id, role="staff")
+    if user.role == "admin":
+        main_id = await store_service.get_main_store_id(db)
+        return OrderScope(store_id=main_id, role="admin")
+    return OrderScope(store_id=None, role=user.role)
 
 
 async def cleanup_expired_cancelled(db: AsyncSession) -> int:
@@ -66,12 +105,12 @@ async def create_order(db: AsyncSession, user: User, data: OrderCreate) -> Order
     for it in data.items:
         products[it.product_id].stock -= it.qty
 
-    # Online to'lov (card) — to'lov muvaffaqiyatli bo'lguncha transit_code generatsiya qilmaymiz.
-    # Cash — eski avto-tasdiqlash oqimi saqlanadi.
-    is_online_payment = data.payment_method == "card"
-    initial_status = "pending_payment" if is_online_payment else "confirmed"
+    # Online to'lov (card) yoki rassrochka (instalment) — tasdiqlash kelguncha
+    # transit_code generatsiya qilmaymiz. Cash — eski avto-tasdiqlash oqimi.
+    is_deferred_payment = data.payment_method in ("card", "instalment")
+    initial_status = "pending_payment" if is_deferred_payment else "confirmed"
     transit_code = (
-        None if is_online_payment else await _generate_unique_code(db, Order.transit_code)
+        None if is_deferred_payment else await _generate_unique_code(db, Order.transit_code)
     )
 
     order = Order(
@@ -84,7 +123,7 @@ async def create_order(db: AsyncSession, user: User, data: OrderCreate) -> Order
         items=items_snapshot,
         total=total,
         comment=data.comment,
-        customer_name=user.full_name or user.telegram_username,
+        customer_name=user.full_name,
         customer_phone=user.phone,
         status=initial_status,
         payment_status="pending",
@@ -213,6 +252,22 @@ async def confirm_with_transit_code(db: AsyncSession, order: Order) -> Order:
     return order
 
 
+async def mark_dispatched(db: AsyncSession, order: Order, user: User) -> Order:
+    """Admin mahsulot kodini (yorliq) chop etib punktga jo'natdi.
+
+    Idempotent: birinchi jo'natuvchi saqlanadi, qayta chaqirilsa o'zgarmaydi —
+    shunda ikkinchi admin "qayta chop etsa" ham asl jo'natuvchi yozuvi qoladi."""
+    if order.dispatched_at is None:
+        now = datetime.now(timezone.utc)
+        order.dispatched_at = now
+        order.dispatched_by_id = user.id
+        order.dispatched_by_name = user.full_name
+        order.updated_at = now
+        await db.commit()
+        await db.refresh(order)
+    return order
+
+
 async def get_order_by_transit_code(
     db: AsyncSession, code: str, pickup_point_id: int
 ) -> Order | None:
@@ -266,11 +321,6 @@ async def mark_delivered(db: AsyncSession, order: Order) -> Order:
     await db.commit()
     await db.refresh(order)
     return order
-
-
-async def get_user_telegram_id(db: AsyncSession, user_id: int) -> int | None:
-    res = await db.execute(select(User.telegram_id).where(User.id == user_id))
-    return res.scalar_one_or_none()
 
 
 async def get_user_phone(db: AsyncSession, user_id: int) -> str | None:

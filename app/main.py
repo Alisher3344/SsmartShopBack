@@ -1,9 +1,26 @@
-import json
-import urllib.error
-import urllib.request
+import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
+
+# Logging — uvicorn'dan oldin (basicConfig force=True bilan uvicorn'ning
+# default handlerlarini almashtiramiz). Aks holda `logging.getLogger(__name__)`
+# ishlatadigan app-level loglar (myid callback debug, exception trace) docker
+# stdout'ga chiqmaydi. uvicorn.access/error loglari ham shu yo'l orqali ketadi.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-7s [%(name)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True,
+)
+# uvicorn lifespan startup'idan keyin root level WARNING'ga qaytariladi.
+# Shuning uchun bizning `app.*` namespace logger'lari uchun aniq INFO
+# level qo'yamiz — child logger'lar (app.access, app.routers.myid, ...)
+# bu level'ni inherit qiladi va root.level'ga bog'liq bo'lmaydi.
+logging.getLogger("app").setLevel(logging.INFO)
+logging.getLogger(__name__).info("Logging initialised (stdout, INFO+, app namespace)")
 
 import asyncpg
 from alembic import command
@@ -16,12 +33,11 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.core.config import settings
-from app.core.telegram_bot import start_bot, stop_bot
 from app.db.database import AsyncSessionLocal, engine
 from app.routers import banner as banner_router
-from app.routers import bound_card as bound_card_router
+from app.routers import instalment as instalment_router
+from app.routers import katm as katm_router
 from app.routers import order as order_router
-from app.routers import payment as payment_router
 from app.routers import pickup_point as pickup_point_router
 from app.routers import product as product_router
 from app.routers import review as review_router
@@ -29,10 +45,16 @@ from app.routers import sales_admin as sales_admin_router
 from app.routers import scoring as scoring_router
 from app.routers import staff_admin as staff_admin_router
 from app.routers import store as store_router
+from app.routers import tv_admins as tv_admins_router
+from app.routers import tv_carousel as tv_carousel_router
+from app.routers import pro_carousel as pro_carousel_router
 from app.routers import upload as upload_router
 from app.routers import sms_otp as sms_otp_router
 from app.routers import admin_users as admin_users_router
 from app.routers import mobile as mobile_router
+from app.routers import mobile_katm as mobile_katm_router
+from app.routers import mobile_myid as mobile_myid_router
+from app.routers import myid as myid_router
 from app.routers import user as user_router
 from app.services import pickup_point_service, user_service
 
@@ -93,37 +115,27 @@ def _run_alembic(connection: Connection) -> None:
     print("[alembic] upgrade head bajarildi")
 
 
-def fetch_telegram_bot_username(token: str) -> str | None:
-    """Telegram getMe orqali bot username olish."""
-    if not token:
-        return None
-    try:
-        url = f"https://api.telegram.org/bot{token}/getMe"
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            data = json.load(resp)
-        if data.get("ok"):
-            return data["result"].get("username")
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-        print(f"[startup] Telegram getMe xatosi: {e}")
-    return None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # uvicorn boshlanish paytida o'z LOGGING_CONFIG'i orqali root logger
+    # handlerlarini tozalaydi. Lifespan startup'da basicConfig'ni qayta
+    # qo'llab, application loglar (myid debug, exceptions) stdout'ga
+    # chiqishini ta'minlaymiz. force=True majburiy.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-7s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[logging.StreamHandler(sys.stdout)],
+        force=True,
+    )
+    logging.getLogger("app").setLevel(logging.INFO)
+    logging.getLogger("app.main").info("Lifespan startup — logging re-applied (app=INFO)")
+
     await ensure_database_exists()
 
-    # Schema migratsiyalari endi to'liq Alembic orqali
+    # Schema migratsiyalari to'liq Alembic orqali
     async with engine.begin() as conn:
         await conn.run_sync(_run_alembic)
-
-    # Telegram bot username avto-aniqlash
-    if settings.TELEGRAM_BOT_TOKEN and not settings.TELEGRAM_BOT_USERNAME:
-        username = fetch_telegram_bot_username(settings.TELEGRAM_BOT_TOKEN)
-        if username:
-            settings.TELEGRAM_BOT_USERNAME = username
-            print(f"[startup] Telegram bot: @{username}")
-        else:
-            print("[startup] Telegram bot username aniqlab bo'lmadi (token noto'g'ri yoki internet yo'q)")
 
     # Faqat super admin foydalanuvchisi
     async with AsyncSessionLocal() as db:
@@ -133,15 +145,96 @@ async def lifespan(app: FastAPI):
         )
         await pickup_point_service.ensure_default_point(db)
 
-    # Telegram botni ishga tushiramiz
-    await start_bot()
+    yield
+
+
+# Swagger UI'da tag'lar shu tartibda chiqadi. Mantiqiy guruhlar:
+# autentifikatsiya → katalog → buyurtma → admin → utility.
+OPENAPI_TAGS = [
+    # Autentifikatsiya
+    {"name": "users", "description": "Ro'yxatdan o'tish, login, parol tiklash, profil (SMS OTP + email)"},
+    {"name": "myid", "description": "MyID (Uzinfocom) biometrik identifikatsiya — OAuth redirect va QR inplace"},
+    # Katalog (publik)
+    {"name": "products", "description": "Mahsulotlar katalogi (ko'p tilli, ko'p rasm, badges, specifications)"},
+    {"name": "banners", "description": "Bosh sahifa banner'lari (UZ/RU rasm, slot bo'yicha)"},
+    {"name": "stores", "description": "Magazinlar (asosiy magazin + filiallar)"},
+    {"name": "reviews", "description": "Mahsulot sharhlari — faqat yetkazib berilgan buyurtma uchun"},
+    # Buyurtma flow
+    {"name": "orders", "description": "Buyurtma lifecycle: confirmed → ready → delivered"},
+    {"name": "pickup-points", "description": "Punktlar (qabul/topshirish), transit/pickup code'lar"},
+    {"name": "instalment", "description": "Paymo orqali rassrochka — yaratish, status, bekor qilish"},
+    {"name": "scoring", "description": "Paymo karta scoring — kredit baholash uchun"},
+    {"name": "katm", "description": "KATM kredit byurosi — kredit tarixi va ban tekshiruvi"},
+    # Admin
+    {"name": "admin-users", "description": "Superadmin: barcha foydalanuvchilarni boshqarish"},
+    {"name": "sales-admins", "description": "Sotuv admini paneli — magazin mahsulotlari va buyurtmalar"},
+    {"name": "staff", "description": "Magazin xodimi paneli (staff role)"},
+    # Utility
+    {"name": "upload", "description": "Rasm yuklash (admin only) — /uploads ga saqlanadi"},
+]
+
+app = FastAPI(
+    title="SSMART API",
+    version="0.3.0",
+    lifespan=lifespan,
+    openapi_tags=OPENAPI_TAGS,
+)
+
+_access_log = logging.getLogger("app.access")
+
+
+_logger_recovery_done = False
+
+
+def _ensure_app_logging():
+    """Boshqa kutubxonalar (prometheus_fastapi_instrumentator yoki uvicorn)
+    `dictConfig(disable_existing_loggers=True)` orqali bizning `app.*`
+    loggerlarni o'chirib qo'yishi mumkin, va root StreamHandler'ni stderr'ga
+    rebind qilishi mumkin. Birinchi request'da bularni qayta to'g'rilaymiz —
+    tezkor va idempotent.
+    """
+    global _logger_recovery_done
+    if _logger_recovery_done:
+        return
+    _logger_recovery_done = True
+    for name in ("app", "app.main", "app.access", "app.routers.myid"):
+        lg = logging.getLogger(name)
+        lg.disabled = False
+        lg.setLevel(logging.INFO)
+    root = logging.getLogger()
+    for h in root.handlers:
+        if isinstance(h, logging.StreamHandler) and h.stream is not sys.stdout:
+            h.stream = sys.stdout
+
+
+@app.middleware("http")
+async def _log_requests(request, call_next):
+    """Har bir HTTP so'rovni log qiladi."""
+    import time as _t
+    _ensure_app_logging()
+    start = _t.monotonic()
     try:
-        yield
-    finally:
-        await stop_bot()
+        response = await call_next(request)
+        elapsed_ms = (_t.monotonic() - start) * 1000
+        _access_log.info(
+            "%s %s%s -> %d (%.0fms)",
+            request.method,
+            request.url.path,
+            ("?" + request.url.query) if request.url.query else "",
+            response.status_code,
+            elapsed_ms,
+        )
+        return response
+    except Exception:
+        elapsed_ms = (_t.monotonic() - start) * 1000
+        _access_log.exception(
+            "%s %s -> EXCEPTION (%.0fms)",
+            request.method,
+            request.url.path,
+            elapsed_ms,
+        )
+        raise
 
-
-app = FastAPI(title="SSMART API", version="0.3.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -152,6 +245,22 @@ app.add_middleware(
 )
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+
+# Flutter mobile ilova uchun alohida sub-application — alohida Swagger
+# (/api/mobile/docs) va alohida OpenAPI (/api/mobile/openapi.json).
+mobile_app = FastAPI(
+    title="SSMART Mobile API",
+    description="Flutter APK uchun shop-only API: auth, profil, katalog, buyurtmalar, sharhlar.",
+    version="0.3.0",
+    openapi_tags=[
+        {"name": "mobile", "description": "Flutter mobile ilova endpointlari"},
+    ],
+    servers=[{"url": "/api/mobile", "description": "Mount prefix"}],
+)
+mobile_app.include_router(mobile_router.router)
+mobile_app.include_router(mobile_myid_router.router)
+mobile_app.include_router(mobile_katm_router.router)
+app.mount("/api/mobile", mobile_app)
 
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
@@ -166,19 +275,36 @@ async def health():
     return {"status": "ok"}
 
 
+# --- Autentifikatsiya ---
 app.include_router(user_router.router, prefix="/api")
 app.include_router(sms_otp_router.router, prefix="/api")
-app.include_router(admin_users_router.router, prefix="/api")
-app.include_router(mobile_router.router, prefix="/api")
+# MyID OAuth callback'lari `/auth/myid/*` da (Jasur tomonida shu URL'lar
+# ro'yxatga olingan). API emas, balki tashqi tizim webhook'lari.
+app.include_router(myid_router.router)
+
+# Mobile API alohida sub-app sifatida `/api/mobile`'ga mount qilingan (yuqorida).
+# Swagger: /api/mobile/docs
+
+# --- Katalog (publik) ---
 app.include_router(product_router.router, prefix="/api")
 app.include_router(banner_router.router, prefix="/api")
-app.include_router(pickup_point_router.router, prefix="/api")
-app.include_router(sales_admin_router.router, prefix="/api")
-app.include_router(order_router.router, prefix="/api")
-app.include_router(payment_router.router, prefix="/api")
-app.include_router(bound_card_router.router, prefix="/api")
-app.include_router(scoring_router.router, prefix="/api")
-app.include_router(review_router.router, prefix="/api")
 app.include_router(store_router.router, prefix="/api")
+app.include_router(review_router.router, prefix="/api")
+
+# --- Buyurtma flow ---
+app.include_router(order_router.router, prefix="/api")
+app.include_router(pickup_point_router.router, prefix="/api")
+app.include_router(instalment_router.router, prefix="/api")
+app.include_router(scoring_router.router, prefix="/api")
+app.include_router(katm_router.router, prefix="/api")
+
+# --- Admin panellar ---
+app.include_router(admin_users_router.router, prefix="/api")
+app.include_router(sales_admin_router.router, prefix="/api")
 app.include_router(staff_admin_router.router, prefix="/api")
+app.include_router(tv_admins_router.router, prefix="/api")
+app.include_router(tv_carousel_router.router, prefix="/api")
+app.include_router(pro_carousel_router.router, prefix="/api")
+
+# --- Utility ---
 app.include_router(upload_router.router, prefix="/api")

@@ -69,3 +69,28 @@ def create_password_reset_token(phone: str) -> str:
 
 def decode_password_reset_token(token: str) -> str | None:
     return _decode_scoped_phone_token(token, "password_reset")
+
+
+MYID_STATE_TTL_MINUTES = 10
+
+
+def create_myid_state(nonce: str, return_to: str | None = None) -> str:
+    """MyID OAuth `state` parametri — CSRF himoyasi.
+
+    JWT'da nonce + return_to URL'ni shifrlaymiz. Callback'da nonce'ni
+    foydalanuvchi sessiyasidagi nonce bilan solishtiramiz va return_to'ga
+    yo'naltiramiz.
+    """
+    expire = datetime.now(timezone.utc) + timedelta(minutes=MYID_STATE_TTL_MINUTES)
+    payload = {"nonce": nonce, "rt": return_to or "", "scope": "myid_state", "exp": expire}
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_myid_state(token: str) -> dict | None:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError:
+        return None
+    if payload.get("scope") != "myid_state":
+        return None
+    return payload

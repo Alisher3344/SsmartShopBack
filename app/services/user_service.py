@@ -1,7 +1,4 @@
-import hashlib
-import hmac
 import logging
-import time
 from pathlib import Path
 
 from sqlalchemy import select
@@ -9,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password, verify_password
 from app.models.user import User
-from app.schemas.user import ProfileUpdate, TelegramAuthIn, UserCreate
+from app.schemas.user import ProfileUpdate, UserCreate
 
 log = logging.getLogger(__name__)
 
@@ -30,8 +27,6 @@ def _delete_uploaded_file(url: str | None) -> None:
             fpath.unlink()
     except OSError as e:
         log.warning("Eski rasm o'chirilmadi: %s — %s", fpath, e)
-
-TELEGRAM_AUTH_MAX_AGE = 86400  # 1 kun
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
@@ -69,11 +64,6 @@ async def authenticate_user(db: AsyncSession, login: str, password: str) -> User
     if not user or not user.hashed_password or not verify_password(password, user.hashed_password):
         return None
     return user
-
-
-async def get_user_by_telegram_id(db: AsyncSession, telegram_id: int) -> User | None:
-    result = await db.execute(select(User).where(User.telegram_id == telegram_id))
-    return result.scalar_one_or_none()
 
 
 async def list_pickup_admins(db: AsyncSession, pickup_point_id: int) -> list[User]:
@@ -297,22 +287,6 @@ async def delete_staff_admin(db: AsyncSession, user: User) -> None:
     await db.commit()
 
 
-def verify_telegram_auth(data: TelegramAuthIn, bot_token: str) -> bool:
-    """Telegram Login Widget'dan kelgan ma'lumotlarni tekshirish."""
-    if not bot_token:
-        return False
-    if abs(time.time() - data.auth_date) > TELEGRAM_AUTH_MAX_AGE:
-        return False
-    payload = data.model_dump(exclude_none=True)
-    received_hash = payload.pop("hash", None)
-    if not received_hash:
-        return False
-    check_string = "\n".join(f"{k}={v}" for k, v in sorted(payload.items()))
-    secret_key = hashlib.sha256(bot_token.encode()).digest()
-    computed = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(computed, received_hash)
-
-
 async def get_user_by_phone(db: AsyncSession, phone: str) -> User | None:
     result = await db.execute(select(User).where(User.phone == phone))
     return result.scalar_one_or_none()
@@ -347,70 +321,11 @@ async def update_profile(db: AsyncSession, user: User, data: ProfileUpdate) -> U
             _delete_uploaded_file(old_url)
         user.photo_url = new_url
 
-    await db.commit()
-    await db.refresh(user)
-    return user
+    # Paymo instalment KYC maydonlari
+    for kyc_field in ("passport", "middlename", "address", "address_payer", "work_place"):
+        if kyc_field in sent:
+            setattr(user, kyc_field, getattr(data, kyc_field))
 
-
-async def get_or_create_phone_user(
-    db: AsyncSession,
-    phone: str,
-    telegram_id: int | None = None,
-    telegram_username: str | None = None,
-    full_name: str | None = None,
-) -> User:
-    """Telefon raqam bo'yicha foydalanuvchi topish yoki yaratish (Bot OTP login uchun)."""
-    user = None
-    if telegram_id:
-        user = await get_user_by_telegram_id(db, telegram_id)
-    if not user:
-        user = await get_user_by_phone(db, phone)
-    if user:
-        # Profilni yangilab turamiz
-        user.phone = phone
-        if telegram_id:
-            user.telegram_id = telegram_id
-        if telegram_username:
-            user.telegram_username = telegram_username
-        if full_name:
-            user.full_name = full_name
-        await db.commit()
-        await db.refresh(user)
-        return user
-    user = User(
-        phone=phone,
-        telegram_id=telegram_id,
-        telegram_username=telegram_username,
-        full_name=full_name or f"+{phone}",
-        role="user",
-        is_active=True,
-    )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    return user
-
-
-async def get_or_create_telegram_user(db: AsyncSession, data: TelegramAuthIn) -> User:
-    user = await get_user_by_telegram_id(db, data.id)
-    full_name = " ".join(filter(None, [data.first_name, data.last_name])) or data.username or f"tg_{data.id}"
-    if user:
-        # Profilni yangilab turamiz
-        user.full_name = full_name
-        user.telegram_username = data.username
-        user.photo_url = data.photo_url
-        await db.commit()
-        await db.refresh(user)
-        return user
-    user = User(
-        telegram_id=data.id,
-        telegram_username=data.username,
-        full_name=full_name,
-        photo_url=data.photo_url,
-        role="user",
-        is_active=True,
-    )
-    db.add(user)
     await db.commit()
     await db.refresh(user)
     return user

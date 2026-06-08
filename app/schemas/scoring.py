@@ -1,27 +1,28 @@
-"""Paymo scoring schema'lari."""
+"""Paymo scoring schema'lari (POST /scoring/get-monthly)."""
 from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
 
-class MonthlyInflow(BaseModel):
-    """Bir oydagi tushum (tiyinda)."""
-    month: str = Field(..., description="YYYY.MM format")
-    amount_tiyin: int = Field(..., description="Tushum summasi (tiyin)")
+class MonthlyScoringIn(BaseModel):
+    """Paymo /scoring/get-monthly so'rovi."""
+
+    card_number: str = Field(..., min_length=16, max_length=19, description="Karta PAN")
+    card_expiry: str = Field(
+        ..., pattern=r"^\d{4}$", description="YYMM format, masalan: 2509"
+    )
+    amount: int = Field(..., gt=0, description="Kredit summasi (tiyin)")
+    percent: int = Field(..., ge=0, le=100, description="Foiz stavkasi (butun son)")
 
 
-class CardScoringOut(BaseModel):
-    """Karta 12 oylik tushum tarixi + meta."""
-    card_token: str
-    pan_masked: str | None = Field(None, description="PAN niqoblangan: XXXXXX******XXXX")
-    holder_name: str | None = None
+class MonthlyScoringOut(BaseModel):
+    """Paymo /scoring/get-monthly javobi.
+
+    `months` — "YYYY.MM" -> bool dict (oy davomida karta egasiga pul tushganmi).
+    """
+
+    months: dict[str, bool] = Field(default_factory=dict)
+    debt_load: list = Field(default_factory=list, description="Mavjud kreditlar")
     bank: str | None = None
-    phone: str | None = None
-    # Tartiblangan oylar (yangidan eskigacha)
-    months: list[MonthlyInflow]
-    # Yig'indilar (kredit qarori uchun qulay)
-    total_tiyin: int = Field(..., description="12 oydagi umumiy tushum (tiyin)")
-    average_monthly_tiyin: int = Field(..., description="Oylik o'rtacha tushum (tiyin)")
-    active_months: int = Field(..., description="Tushum bo'lgan oylar soni (0 dan katta)")
-    # Raw javob (audit / debug uchun)
+    holder_name: str | None = None
     raw: dict | None = None

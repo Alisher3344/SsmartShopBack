@@ -1,47 +1,46 @@
-"""Paymo skoring servisi: tashqi API javobini normallashtirish + jami hisoblash."""
+"""Paymo skoring servisi: /scoring/get-monthly javobini normallashtirish."""
 from __future__ import annotations
 
 import re
 from typing import Any
 
 from app.core.paymo import paymo
-from app.schemas.scoring import CardScoringOut, MonthlyInflow
+from app.schemas.scoring import MonthlyScoringOut
 
-# "2021.06" formatdagi kalitlar
+# "2023.06" formatdagi kalitlar (yil.oy)
 _MONTH_KEY = re.compile(r"^\d{4}\.\d{2}$")
 
 
-def _parse_months(raw: dict[str, Any]) -> list[MonthlyInflow]:
-    items: list[MonthlyInflow] = []
+def _extract_months(raw: dict[str, Any]) -> dict[str, bool]:
+    """Raw javobdan faqat YYYY.MM kalitlarini ajratib boolean dict qaytaramiz."""
+    out: dict[str, bool] = {}
     for k, v in raw.items():
-        if not isinstance(k, str) or not _MONTH_KEY.match(k):
-            continue
-        try:
-            amt = int(v)
-        except (TypeError, ValueError):
-            continue
-        items.append(MonthlyInflow(month=k, amount_tiyin=amt))
-    # Yangidan eskigacha
-    items.sort(key=lambda m: m.month, reverse=True)
-    return items
+        if isinstance(k, str) and _MONTH_KEY.match(k):
+            out[k] = bool(v)
+    return out
 
 
-async def get_card_scoring(card_token: str, *, include_raw: bool = False) -> CardScoringOut:
-    """Karta tokeni bo'yicha 12 oylik tushum tarixi."""
-    raw = await paymo.get_card_scoring(card_token)
-    months = _parse_months(raw)
-    total = sum(m.amount_tiyin for m in months)
-    active = sum(1 for m in months if m.amount_tiyin > 0)
-    avg = total // len(months) if months else 0
-    return CardScoringOut(
-        card_token=card_token,
-        pan_masked=raw.get("pan"),
-        holder_name=raw.get("holder_name"),
-        bank=raw.get("bank"),
-        phone=raw.get("phone"),
+async def get_monthly_scoring(
+    card_number: str,
+    card_expiry: str,
+    amount: int,
+    percent: int,
+    *,
+    include_raw: bool = False,
+) -> MonthlyScoringOut:
+    """Karta bo'yicha oylik tushum holatini (true/false) Paymo'dan oladi.
+
+    Javob: oy bo'yicha {bool} dict + bank + holder_name + debt_load.
+    """
+    raw = await paymo.get_monthly_scoring(card_number, card_expiry, amount, percent)
+    months = _extract_months(raw)
+    debt_load = raw.get("debt_load") or []
+    if not isinstance(debt_load, list):
+        debt_load = []
+    return MonthlyScoringOut(
         months=months,
-        total_tiyin=total,
-        average_monthly_tiyin=avg,
-        active_months=active,
+        debt_load=debt_load,
+        bank=raw.get("bank"),
+        holder_name=raw.get("holder_name"),
         raw=raw if include_raw else None,
     )

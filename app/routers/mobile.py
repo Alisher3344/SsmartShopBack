@@ -17,12 +17,11 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import require_admin  # noqa: F401  (unused now, kept for parity)
+from app.core.deps import get_current_user, require_admin  # noqa: F401
 from app.db.database import get_db
 from app.models.banner import Banner
 from app.models.store import Store
 from app.models.user import User
-from app.routers.user import get_current_user
 from app.schemas.banner import BannerOut
 from app.schemas.order import OrderCreate, OrderOut
 from app.schemas.product import ProductOut
@@ -50,7 +49,7 @@ from app.services import order_service, product_service, review_service, user_se
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mobile", tags=["mobile"])
+router = APIRouter(tags=["mobile"])
 
 
 # =====================================================================

@@ -21,11 +21,10 @@ from app.core.config import settings
 from app.db.database import Base
 
 # Modellarni import qilamiz — Base.metadata to'liq bo'lishi uchun
-from app.models import auth_session  # noqa: F401
 from app.models import banner  # noqa: F401
-from app.models import bound_card  # noqa: F401
+from app.models import instalment  # noqa: F401
+from app.models import katm  # noqa: F401
 from app.models import order  # noqa: F401
-from app.models import payment  # noqa: F401
 from app.models import pickup_point  # noqa: F401
 from app.models import product  # noqa: F401
 from app.models import review  # noqa: F401

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -20,32 +21,6 @@ class UserLogin(BaseModel):
     password: str
 
 
-class TelegramAuthIn(BaseModel):
-    """Telegram Login Widget'dan kelgan ma'lumotlar."""
-    id: int
-    first_name: str | None = None
-    last_name: str | None = None
-    username: str | None = None
-    photo_url: str | None = None
-    auth_date: int
-    hash: str
-
-
-class TelegramOtpStartOut(BaseModel):
-    token: str
-    bot_link: str
-    expires_in: int
-
-
-class TelegramOtpVerifyIn(BaseModel):
-    token: str
-    code: str
-
-
-class TelegramOtpStatusOut(BaseModel):
-    status: str
-
-
 class UserOut(BaseModel):
     id: int
     email: str | None = None
@@ -53,24 +28,38 @@ class UserOut(BaseModel):
     full_name: str | None = None
     role: str
     is_active: bool
-    telegram_id: int | None = None
-    telegram_username: str | None = None
     photo_url: str | None = None
     phone: str | None = None
     birth_date: date | None = None
+    # Paymo instalment uchun KYC profil
+    passport: str | None = None
+    middlename: str | None = None
+    address: str | None = None
+    address_payer: str | None = None
+    work_place: str | None = None
     pickup_point_id: int | None = None
     store_id: int | None = None
     created_at: datetime
+    # MyID identifikatsiyasi (success sahifa shu maydonlarni ko'rsatadi)
+    myid_passport_serial: str | None = None
+    myid_verified_at: datetime | None = None
+    myid_raw: dict[str, Any] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ProfileUpdate(BaseModel):
-    """Foydalanuvchi o'z profili (ism, familiya, tug'ilgan kun, rasm)."""
+    """Foydalanuvchi o'z profili (ism, familiya, tug'ilgan kun, rasm, instalment KYC)."""
     first_name: str | None = Field(default=None, min_length=1, max_length=120)
     last_name: str | None = Field(default=None, min_length=1, max_length=120)
     birth_date: date | None = None
     photo_url: str | None = Field(default=None, max_length=512)
+    # Paymo instalment uchun KYC (bir marta to'ldirilib qayta ishlatiladi)
+    passport: str | None = Field(default=None, pattern=r"^\d{14}$")  # PINFL/JSHSHIR
+    middlename: str | None = Field(default=None, min_length=1, max_length=120)
+    address: str | None = Field(default=None, min_length=1, max_length=512)
+    address_payer: str | None = Field(default=None, min_length=1, max_length=512)
+    work_place: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class SalesAdminCreate(BaseModel):
@@ -109,6 +98,23 @@ class StaffAdminUpdate(BaseModel):
     store_id: int | None = None
 
 
+class TvAdminCreate(BaseModel):
+    """SsmartTV admin — TV backendida yaratiladi (server-to-server proxy).
+    Maydon cheklovlari TV backendiga mos (username ≥3, parol ≥8)."""
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=8, max_length=128)
+    full_name: str | None = Field(default=None, max_length=120)
+    role: Literal["admin", "staff"] = "admin"
+
+
+class TvAdminUpdate(BaseModel):
+    """SsmartTV admin tahrirlash — faqat berilgan maydonlar yuboriladi."""
+    username: str | None = Field(default=None, min_length=3, max_length=64)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+    full_name: str | None = Field(default=None, max_length=120)
+    role: Literal["admin", "staff"] | None = None
+
+
 class PickupAdminCreate(BaseModel):
     """Punkt admini yaratish — ko'p admin bo'lishi mumkin."""
     full_name: str = Field(min_length=2, max_length=255)
@@ -129,8 +135,3 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
-
-
-class TelegramInfo(BaseModel):
-    bot_username: str
-    enabled: bool

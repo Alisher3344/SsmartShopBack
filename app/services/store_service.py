@@ -1,7 +1,9 @@
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.store import Store
+from app.models.user import User
 from app.schemas.store import StoreCreate, StoreUpdate
 
 
@@ -48,3 +50,52 @@ async def update_store(db: AsyncSession, store: Store, data: StoreUpdate) -> Sto
 async def delete_store(db: AsyncSession, store: Store) -> None:
     await db.delete(store)
     await db.commit()
+
+
+async def ensure_store_access(db: AsyncSession, user: User, store_id: int | None) -> None:
+    """Magazinga tegishli resursga ruxsat tekshiruvi:
+       - superadmin: barchasiga
+       - admin (sotuv): faqat asosiy magazin (is_main=true)
+       - staff: faqat o'z magazini
+
+    Boshqa rollar 403 oladi.
+    """
+    if user.role == "superadmin":
+        return
+    if user.role == "admin":
+        main_id = await get_main_store_id(db)
+        if store_id != main_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu resurs boshqa magazinga tegishli",
+            )
+        return
+    if user.role == "staff":
+        if user.store_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Sizga magazin biriktirilmagan, super admin bilan bog'laning",
+            )
+        if store_id != user.store_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu resurs boshqa magazinga tegishli",
+            )
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Ruxsat yo'q")
+
+
+async def resolve_store_filter(db: AsyncSession, user: User) -> int | None:
+    """Foydalanuvchining ko'rishi mumkin bo'lgan store_id (None = barchasi).
+
+    Bu data-scope: "kim qaysi magazin resurslarini ko'radi". RBAC qatlami
+    "kim umuman kira oladi" qarorini oladi (require_admin), bu funksiya esa
+    natija qaysi magazindan kelishini cheklaydi.
+    """
+    if user.role == "superadmin":
+        return None
+    if user.role == "admin":
+        return await get_main_store_id(db)
+    if user.role == "staff":
+        return user.store_id
+    return None

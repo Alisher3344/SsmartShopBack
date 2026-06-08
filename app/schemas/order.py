@@ -24,7 +24,7 @@ class OrderCreate(BaseModel):
     delivery_type: str = Field(pattern="^(pickup|courier)$")
     pickup_point_id: int | None = None
     delivery_address: str | None = None
-    payment_method: str = Field(pattern="^(card|cash)$")
+    payment_method: str = Field(pattern="^(card|cash|instalment)$")
     comment: str | None = None
 
     model_config = _config()
@@ -59,6 +59,9 @@ class OrderOut(BaseModel):
     pickup_code: str | None = None
     received_at: datetime | None = None
     delivered_at: datetime | None = None
+    dispatched_at: datetime | None = None
+    dispatched_by_id: int | None = None
+    dispatched_by_name: str | None = None
     created_at: datetime
     updated_at: datetime
     # Pickup point ma'lumotlari (admin uchun)
